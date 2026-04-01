@@ -1,4 +1,4 @@
-package com.example.bonbon_radio
+package com.bonbonradio.app
 
 import io.flutter.embedding.android.FlutterActivity
 
