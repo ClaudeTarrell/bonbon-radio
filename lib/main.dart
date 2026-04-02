@@ -21,7 +21,11 @@ const String kHeaderLogoUrl =
 const String kHeaderLogoFallbackUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
-const String kFixedStreamUrl = 'https://radio.bonbonradio.net/stream';
+/// WICHTIG:
+/// Für die App bewusst den DIREKTEN Stream verwenden.
+/// Browser kann schöne URL.
+/// Flutter/just_audio läuft meist stabiler mit dem echten Mountpoint.
+const String kFixedStreamUrl = 'http://radio.bonbonradio.net:8000/stream';
 
 const String kInstagramUrl =
     'https://www.instagram.com/bonbon_recordings/';
@@ -37,7 +41,7 @@ Future<void> main() async {
 
   final audioHandler = await AudioService.init(
     builder: () => BonbonAudioHandler(),
-    config: AudioServiceConfig(
+    config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.bonbonradio.app.channel.audio',
       androidNotificationChannelName: 'Bonbon Radio Playback',
       androidStopForegroundOnPause: false,
