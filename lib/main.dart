@@ -148,17 +148,96 @@ class _HomePageState extends State<HomePage> {
     return album.trim().toLowerCase() == 'jingle';
   }
 
+  void _showPrettyErrorSnackBar(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          elevation: 0,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          backgroundColor: Colors.transparent,
+          duration: const Duration(seconds: 4),
+          content: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF252525),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: const Color.fromRGBO(255, 255, 255, 0.12),
+                width: 1.2,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color.fromRGBO(0, 0, 0, 0.32),
+                  blurRadius: 16,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(255, 255, 255, 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color.fromRGBO(255, 255, 255, 0.10),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Color(0xFFF3F3F3),
+                      fontSize: 14.5,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+  }
+
   Future<Map<String, dynamic>> loadData() async {
-    final res = await http.get(
-      Uri.parse(kAppDataUrl),
-      headers: const {'Cache-Control': 'no-cache'},
-    );
+    try {
+      final res = await http
+          .get(
+            Uri.parse(kAppDataUrl),
+            headers: const {'Cache-Control': 'no-cache'},
+          )
+          .timeout(const Duration(seconds: 12));
 
-    if (res.statusCode != 200) {
-      throw Exception('Fehler beim Laden der App-Daten');
+      if (res.statusCode != 200) {
+        throw Exception('Server antwortet mit Status ${res.statusCode}');
+      }
+
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (_) {
+      return {
+        'appName': 'Bonbon Radio',
+        'tagline': 'From Zurich to the World',
+        'description':
+            'Bonbon Radio is an independent electronic music station based in Zurich, powered by Bonbon Recordings.',
+        'websiteUrl': 'https://bonbonradio.net',
+        'program': [],
+      };
     }
-
-    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   Future<void> togglePlay(String url) async {
@@ -202,11 +281,7 @@ class _HomePageState extends State<HomePage> {
         _tapLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Stream konnte nicht gestartet werden: $e'),
-        ),
-      );
+      _showPrettyErrorSnackBar('Stream konnte nicht gestartet werden.');
     }
   }
 
@@ -215,10 +290,7 @@ class _HomePageState extends State<HomePage> {
 
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Link konnte nicht geöffnet werden: $url')),
-      );
+      _showPrettyErrorSnackBar('Link konnte nicht geöffnet werden.');
     }
   }
 
@@ -300,19 +372,16 @@ class _HomePageState extends State<HomePage> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snapshot.hasData || snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Fehler beim Laden:\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
+          final json = snapshot.data ??
+              {
+                'appName': 'Bonbon Radio',
+                'tagline': 'From Zurich to the World',
+                'description':
+                    'Bonbon Radio is an independent electronic music station based in Zurich, powered by Bonbon Recordings.',
+                'websiteUrl': 'https://bonbonradio.net',
+                'program': [],
+              };
 
-          final json = snapshot.data!;
           final appName = (json['appName'] ?? 'Bonbon Radio').toString();
           final tagline =
               (json['tagline'] ?? 'From Zurich to the World').toString();
@@ -640,11 +709,11 @@ class _BrandHeader extends StatelessWidget {
           height: 58,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(0, 0, 0, 0.28),
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: const Color.fromRGBO(255, 255, 255, 0.10),
-              width: 1,
+              color: const Color.fromRGBO(255, 255, 255, 0.22),
+              width: 1.5,
             ),
           ),
           child: _LogoImage(logoUrl: headerLogoUrl),

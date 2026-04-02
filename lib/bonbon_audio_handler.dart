@@ -83,11 +83,28 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         lower.endsWith('.webp');
   }
 
+  String _cleanUrl(String value) {
+    return value.replaceAll(r'\/', '/').trim();
+  }
+
+  String _normalizeHost(String value) {
+    var cleaned = _cleanUrl(value);
+
+    if (cleaned.startsWith('http://178.104.138.250:2020')) {
+      cleaned = cleaned.replaceFirst(
+        'http://178.104.138.250:2020',
+        'https://radio.bonbonradio.net',
+      );
+    }
+
+    return cleaned;
+  }
+
   String _resolveBestCover(Map<String, dynamic> json) {
-    final urlField = (json['url'] ?? '').toString().trim();
-    final coverField = (json['cover'] ?? '').toString().trim();
-    final artField = (json['art'] ?? '').toString().trim();
-    final coverArtField = (json['coverart'] ?? '').toString().trim();
+    final urlField = _normalizeHost((json['url'] ?? '').toString());
+    final coverField = _normalizeHost((json['cover'] ?? '').toString());
+    final artField = _normalizeHost((json['art'] ?? '').toString());
+    final coverArtField = _normalizeHost((json['coverart'] ?? '').toString());
 
     if (urlField.isNotEmpty && _isImageUrl(urlField)) {
       return urlField;
@@ -103,6 +120,33 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
 
     if (coverArtField.isNotEmpty) {
       return coverArtField;
+    }
+
+    final covers = json['covers'];
+    if (covers is List && covers.isNotEmpty) {
+      final first = _normalizeHost(covers.first.toString());
+      if (first.isNotEmpty) {
+        return first;
+      }
+    }
+
+    final nowPlaying = json['now_playing'];
+    if (nowPlaying is Map<String, dynamic>) {
+      final songMap = nowPlaying['song'];
+      if (songMap is Map<String, dynamic>) {
+        final songArt = _normalizeHost((songMap['art'] ?? '').toString());
+        if (songArt.isNotEmpty) {
+          return songArt;
+        }
+      }
+    }
+
+    final song = json['song'];
+    if (song is Map<String, dynamic>) {
+      final songArt = _normalizeHost((song['art'] ?? '').toString());
+      if (songArt.isNotEmpty) {
+        return songArt;
+      }
     }
 
     return kFixedLogoUrl;
