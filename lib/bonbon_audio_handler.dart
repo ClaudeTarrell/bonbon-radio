@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:just_audio/just_audio.dart';
 
 const String kNowPlayingUrl =
     'https://radio.bonbonradio.net/json/stream/bonbonradio';
+
 const String kFixedLogoUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
@@ -22,10 +24,26 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   String _lastCover = '';
   String _lastAlbum = '';
 
+  static const Map<String, String> _streamHeaders = {
+    'User-Agent': 'BonbonRadioApp/1.0 (Android)',
+    'Accept': '*/*',
+    'Icy-MetaData': '1',
+    'Connection': 'keep-alive',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
+
   BonbonAudioHandler() {
     _player.playbackEventStream.listen(
       (_) => _broadcastState(),
       onError: (Object error, StackTrace stackTrace) {
+        developer.log(
+          'playbackEventStream error',
+          name: 'BonbonAudioHandler',
+          error: error,
+          stackTrace: stackTrace,
+        );
+
         playbackState.add(
           playbackState.value.copyWith(
             processingState: AudioProcessingState.error,
@@ -34,6 +52,10 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         );
       },
     );
+
+    _player.playerStateStream.listen((_) {
+      _broadcastState();
+    });
   }
 
   AudioProcessingState _mapProcessingState(ProcessingState state) {
@@ -106,28 +128,15 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     final artField = _normalizeHost((json['art'] ?? '').toString());
     final coverArtField = _normalizeHost((json['coverart'] ?? '').toString());
 
-    if (urlField.isNotEmpty && _isImageUrl(urlField)) {
-      return urlField;
-    }
-
-    if (coverField.isNotEmpty && _isImageUrl(coverField)) {
-      return coverField;
-    }
-
-    if (artField.isNotEmpty && _isImageUrl(artField)) {
-      return artField;
-    }
-
-    if (coverArtField.isNotEmpty) {
-      return coverArtField;
-    }
+    if (urlField.isNotEmpty && _isImageUrl(urlField)) return urlField;
+    if (coverField.isNotEmpty && _isImageUrl(coverField)) return coverField;
+    if (artField.isNotEmpty && _isImageUrl(artField)) return artField;
+    if (coverArtField.isNotEmpty) return coverArtField;
 
     final covers = json['covers'];
     if (covers is List && covers.isNotEmpty) {
       final first = _normalizeHost(covers.first.toString());
-      if (first.isNotEmpty) {
-        return first;
-      }
+      if (first.isNotEmpty) return first;
     }
 
     final nowPlaying = json['now_playing'];
@@ -135,18 +144,14 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       final songMap = nowPlaying['song'];
       if (songMap is Map<String, dynamic>) {
         final songArt = _normalizeHost((songMap['art'] ?? '').toString());
-        if (songArt.isNotEmpty) {
-          return songArt;
-        }
+        if (songArt.isNotEmpty) return songArt;
       }
     }
 
     final song = json['song'];
     if (song is Map<String, dynamic>) {
       final songArt = _normalizeHost((song['art'] ?? '').toString());
-      if (songArt.isNotEmpty) {
-        return songArt;
-      }
+      if (songArt.isNotEmpty) return songArt;
     }
 
     return kFixedLogoUrl;
@@ -216,6 +221,23 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     );
   }
 
+  Future<void> _prepareSource(String url) async {
+    final uri = Uri.parse(url);
+
+    await _player.stop();
+
+    await _player.setAudioSource(
+      AudioSource.uri(
+        uri,
+        headers: _streamHeaders,
+      ),
+      preload: true,
+    );
+
+    _currentStreamUrl = url;
+    _sourcePrepared = true;
+  }
+
   Future<void> playStream(
     String url, {
     required String fallbackTitle,
@@ -231,9 +253,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       ),
     );
 
-    if (!_sourcePrepared ||
-        _currentStreamUrl != url ||
-        _player.processingState == ProcessingState.idle) {
+    try {
       playbackState.add(
         playbackState.value.copyWith(
           processingState: AudioProcessingState.loading,
@@ -241,32 +261,54 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         ),
       );
 
-      await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(url)),
-        preload: true,
+      final shouldReprepare = !_sourcePrepared ||
+          _currentStreamUrl != url ||
+          _player.processingState == ProcessingState.idle;
+
+      if (shouldReprepare) {
+        await _prepareSource(url).timeout(const Duration(seconds: 20));
+      }
+
+      await _player.play().timeout(const Duration(seconds: 20));
+
+      _startMetadataTimer();
+      await refreshMetadata(force: true);
+      _broadcastState();
+    } catch (e, st) {
+      developer.log(
+        'playStream failed',
+        name: 'BonbonAudioHandler',
+        error: e,
+        stackTrace: st,
       );
 
-      _currentStreamUrl = url;
-      _sourcePrepared = true;
-    }
+      _sourcePrepared = false;
 
-    await _player.play();
-    _startMetadataTimer();
-    await refreshMetadata(force: true);
-    _broadcastState();
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.error,
+          playing: false,
+        ),
+      );
+
+      rethrow;
+    }
   }
 
   Future<void> refreshMetadata({bool force = false}) async {
     try {
       final res = await http.get(
         Uri.parse(kNowPlayingUrl),
-        headers: const {'Cache-Control': 'no-cache'},
-      );
+        headers: const {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'User-Agent': 'BonbonRadioApp/1.0 (Android)',
+        },
+      ).timeout(const Duration(seconds: 12));
 
       if (res.statusCode != 200) return;
 
       final json = jsonDecode(res.body) as Map<String, dynamic>;
-
       final rawNowPlaying = (json['nowplaying'] ?? '').toString().trim();
 
       String title = '';
@@ -305,7 +347,14 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
           cover: cover,
         ),
       );
-    } catch (_) {}
+    } catch (e, st) {
+      developer.log(
+        'refreshMetadata failed',
+        name: 'BonbonAudioHandler',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   void _startMetadataTimer() {
@@ -324,18 +373,35 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> play() async {
     if (_currentStreamUrl.isEmpty) return;
 
-    if (!_sourcePrepared || _player.processingState == ProcessingState.idle) {
-      await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(_currentStreamUrl)),
-        preload: true,
-      );
-      _sourcePrepared = true;
-    }
+    try {
+      if (!_sourcePrepared || _player.processingState == ProcessingState.idle) {
+        await _prepareSource(_currentStreamUrl)
+            .timeout(const Duration(seconds: 20));
+      }
 
-    await _player.play();
-    _startMetadataTimer();
-    await refreshMetadata(force: true);
-    _broadcastState();
+      await _player.play().timeout(const Duration(seconds: 20));
+      _startMetadataTimer();
+      await refreshMetadata(force: true);
+      _broadcastState();
+    } catch (e, st) {
+      developer.log(
+        'play failed',
+        name: 'BonbonAudioHandler',
+        error: e,
+        stackTrace: st,
+      );
+
+      _sourcePrepared = false;
+
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.error,
+          playing: false,
+        ),
+      );
+
+      rethrow;
+    }
   }
 
   @override
@@ -356,5 +422,12 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> onTaskRemoved() async {
     await stop();
+  }
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'retry_stream' && _currentStreamUrl.isNotEmpty) {
+      await play();
+    }
   }
 }
