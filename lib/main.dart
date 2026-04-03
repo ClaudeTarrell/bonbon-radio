@@ -25,7 +25,7 @@ const String kHeaderLogoFallbackUrl =
 /// Für die App bewusst den DIREKTEN Stream verwenden.
 /// Browser kann schöne URL.
 /// Flutter/just_audio läuft meist stabiler mit dem echten Mountpoint.
-const String kFixedStreamUrl = 'http://radio.bonbonradio.net:8000/stream';
+const String kFixedStreamUrl = 'https://radio.bonbonradio.net/stream';
 
 const String kInstagramUrl =
     'https://www.instagram.com/bonbon_recordings/';
