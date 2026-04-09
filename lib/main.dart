@@ -128,7 +128,8 @@ class _HomePageState extends State<HomePage> {
       final incomingAlbum = (item.album ?? '').trim();
       final incomingCover = item.artUri?.toString().trim() ?? '';
 
-      final isJingle = _isJingleAlbum(incomingAlbum);
+      final isJingle =
+          _isJingleMetadata(incomingTitle, incomingArtist, incomingAlbum);
 
       setState(() {
         if (isJingle) {
@@ -148,8 +149,14 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  bool _isJingleAlbum(String album) {
-    return album.trim().toLowerCase() == 'jingle';
+  bool _isJingleMetadata(String title, String artist, String album) {
+    final normalizedTitle = title.trim().toLowerCase();
+    final normalizedArtist = artist.trim().toLowerCase();
+    final normalizedAlbum = album.trim().toLowerCase();
+
+    return normalizedTitle.contains('jingle') ||
+        normalizedArtist.contains('jingle') ||
+        normalizedAlbum.contains('jingle');
   }
 
   void _showPrettyErrorSnackBar(String message) {
