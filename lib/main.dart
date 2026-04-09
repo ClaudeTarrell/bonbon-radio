@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -800,6 +801,92 @@ class _LogoImage extends StatelessWidget {
   }
 }
 
+class _TvFocusableButtonShell extends StatefulWidget {
+  final VoidCallback? onTap;
+  final BorderRadius borderRadius;
+  final BoxDecoration decoration;
+  final EdgeInsetsGeometry padding;
+  final Widget child;
+
+  const _TvFocusableButtonShell({
+    required this.onTap,
+    required this.borderRadius,
+    required this.decoration,
+    required this.padding,
+    required this.child,
+  });
+
+  @override
+  State<_TvFocusableButtonShell> createState() =>
+      _TvFocusableButtonShellState();
+}
+
+class _TvFocusableButtonShellState extends State<_TvFocusableButtonShell> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null;
+
+    return FocusableActionDetector(
+      enabled: enabled,
+      mouseCursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+      shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+        SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+      },
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (intent) {
+            widget.onTap?.call();
+            return null;
+          },
+        ),
+      },
+      onShowFocusHighlight: (value) {
+        if (mounted) {
+          setState(() {
+            _isFocused = value;
+          });
+        }
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isFocused ? 1.02 : 1.0,
+          duration: const Duration(milliseconds: 120),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: widget.padding,
+            decoration: widget.decoration.copyWith(
+              borderRadius: widget.borderRadius,
+              border: Border.all(
+                color: _isFocused
+                    ? Colors.white
+                    : const Color.fromRGBO(255, 255, 255, 0.10),
+                width: _isFocused ? 2.2 : 1.0,
+              ),
+              boxShadow: [
+                if ((widget.decoration.boxShadow ?? []).isNotEmpty)
+                  ...widget.decoration.boxShadow!,
+                if (_isFocused)
+                  const BoxShadow(
+                    color: Color.fromRGBO(255, 255, 255, 0.22),
+                    blurRadius: 18,
+                    offset: Offset(0, 0),
+                  ),
+              ],
+            ),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlayerButton extends StatelessWidget {
   final bool isPlaying;
   final bool isLoading;
@@ -815,66 +902,63 @@ class _PlayerButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: _TvFocusableButtonShell(
         onTap: isLoading ? null : onTap,
         borderRadius: BorderRadius.circular(24),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [
-                Color(0xFF2E2E2E),
-                Color(0xFF242424),
-              ],
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.all(Radius.circular(24)),
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF2E2E2E),
+              Color(0xFF242424),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black38,
+              blurRadius: 14,
+              offset: Offset(0, 8),
             ),
-            border: Border.all(color: Colors.white10),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black38,
-                blurRadius: 14,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isLoading)
-                const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE0E0E0),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                    color: Colors.black,
-                    size: 26,
-                  ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isLoading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Container(
+                width: 42,
+                height: 42,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE0E0E0),
+                  shape: BoxShape.circle,
                 ),
-              const SizedBox(width: 14),
-              Text(
-                isLoading
-                    ? 'Lädt Stream...'
-                    : isPlaying
-                        ? 'Stop Live Stream'
-                        : 'Play Live Stream',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                child: Icon(
+                  isPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                  color: Colors.black,
+                  size: 26,
                 ),
               ),
-            ],
-          ),
+            const SizedBox(width: 14),
+            Text(
+              isLoading
+                  ? 'Lädt Stream...'
+                  : isPlaying
+                      ? 'Stop Live Stream'
+                      : 'Play Live Stream',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1101,31 +1185,28 @@ class _SocialButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: _TvFocusableButtonShell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
-        child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF222222),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: const Color(0xFFE0E0E0), size: 22),
-              const SizedBox(width: 10),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: const BoxDecoration(
+          color: Color(0xFF222222),
+          borderRadius: BorderRadius.all(Radius.circular(18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: const Color(0xFFE0E0E0), size: 22),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
