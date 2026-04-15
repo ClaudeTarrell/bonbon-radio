@@ -12,6 +12,11 @@ const String kNowPlayingUrl =
 const String kFixedLogoUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
+const String kCoverBaseUrl =
+    'https://bonbonradio.net/wp-content/uploads/radio-covers/';
+
+const String kDefaultCoverUrl = '${kCoverBaseUrl}default.jpeg';
+
 class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
@@ -97,64 +102,19 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     );
   }
 
-  bool _isImageUrl(String value) {
-    final lower = value.trim().toLowerCase();
-    return lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') ||
-        lower.endsWith('.webp');
+  String _normalizeCoverKey(String value) {
+    return value
+        .toLowerCase()
+        .trim()
+        .replaceAll('&', 'and')
+        .replaceAll(RegExp(r'\s+'), '-')
+        .replaceAll(RegExp(r'[^a-z0-9\-]'), '');
   }
 
-  String _cleanUrl(String value) {
-    return value.replaceAll(r'\/', '/').trim();
-  }
-
-  String _normalizeHost(String value) {
-    var cleaned = _cleanUrl(value);
-
-    if (cleaned.startsWith('http://178.104.138.250:2020')) {
-      cleaned = cleaned.replaceFirst(
-        'http://178.104.138.250:2020',
-        'https://radio.bonbonradio.net',
-      );
-    }
-
-    return cleaned;
-  }
-
-  String _resolveBestCover(Map<String, dynamic> json) {
-    final urlField = _normalizeHost((json['url'] ?? '').toString());
-    final coverField = _normalizeHost((json['cover'] ?? '').toString());
-    final artField = _normalizeHost((json['art'] ?? '').toString());
-    final coverArtField = _normalizeHost((json['coverart'] ?? '').toString());
-
-    if (urlField.isNotEmpty && _isImageUrl(urlField)) return urlField;
-    if (coverField.isNotEmpty && _isImageUrl(coverField)) return coverField;
-    if (artField.isNotEmpty && _isImageUrl(artField)) return artField;
-    if (coverArtField.isNotEmpty) return coverArtField;
-
-    final covers = json['covers'];
-    if (covers is List && covers.isNotEmpty) {
-      final first = _normalizeHost(covers.first.toString());
-      if (first.isNotEmpty) return first;
-    }
-
-    final nowPlaying = json['now_playing'];
-    if (nowPlaying is Map<String, dynamic>) {
-      final songMap = nowPlaying['song'];
-      if (songMap is Map<String, dynamic>) {
-        final songArt = _normalizeHost((songMap['art'] ?? '').toString());
-        if (songArt.isNotEmpty) return songArt;
-      }
-    }
-
-    final song = json['song'];
-    if (song is Map<String, dynamic>) {
-      final songArt = _normalizeHost((song['art'] ?? '').toString());
-      if (songArt.isNotEmpty) return songArt;
-    }
-
-    return kFixedLogoUrl;
+  bool _isJingleMetadata(String? artist, String? title, String? album) {
+    final combined =
+        '${artist ?? ''} ${title ?? ''} ${album ?? ''}'.toLowerCase();
+    return combined.contains('jingle');
   }
 
   String _resolveAlbum(Map<String, dynamic> json) {
@@ -191,16 +151,79 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       if (album.isNotEmpty) return album;
     }
 
-    return 'Bonbon Radio';
+    return '';
+  }
+
+  String _resolveArtistFromJson(Map<String, dynamic> json) {
+    final direct = (json['artist'] ?? '').toString().trim();
+    if (direct.isNotEmpty) return direct;
+
+    final song = json['song'];
+    if (song is Map<String, dynamic>) {
+      final artist = (song['artist'] ?? '').toString().trim();
+      if (artist.isNotEmpty) return artist;
+    }
+
+    final nowPlaying = json['now_playing'];
+    if (nowPlaying is Map<String, dynamic>) {
+      final songMap = nowPlaying['song'];
+      if (songMap is Map<String, dynamic>) {
+        final artist = (songMap['artist'] ?? '').toString().trim();
+        if (artist.isNotEmpty) return artist;
+      }
+    }
+
+    final nowPlayingData = json['nowplaying_data'];
+    if (nowPlayingData is Map<String, dynamic>) {
+      final songMap = nowPlayingData['song'];
+      if (songMap is Map<String, dynamic>) {
+        final artist = (songMap['artist'] ?? '').toString().trim();
+        if (artist.isNotEmpty) return artist;
+      }
+    }
+
+    final currentTrack = json['currenttrack'];
+    if (currentTrack is Map<String, dynamic>) {
+      final artist = (currentTrack['artist'] ?? '').toString().trim();
+      if (artist.isNotEmpty) return artist;
+    }
+
+    return '';
+  }
+
+  String _buildCoverUrlFromKey(String key) {
+    final normalized = _normalizeCoverKey(key);
+    if (normalized.isEmpty) return kDefaultCoverUrl;
+    return '$kCoverBaseUrl$normalized.jpeg';
+  }
+
+  String _resolveCover({
+    required String album,
+    required String artist,
+    required String title,
+  }) {
+    if (_isJingleMetadata(artist, title, album)) {
+      return kDefaultCoverUrl;
+    }
+
+    if (album.trim().isNotEmpty) {
+      return _buildCoverUrlFromKey(album);
+    }
+
+    if (artist.trim().isNotEmpty) {
+      return _buildCoverUrlFromKey(artist);
+    }
+
+    return kDefaultCoverUrl;
   }
 
   Uri _safeArtUri(String cover) {
     final value = cover.trim();
-    if (value.isEmpty) return Uri.parse(kFixedLogoUrl);
+    if (value.isEmpty) return Uri.parse(kDefaultCoverUrl);
 
     final parsed = Uri.tryParse(value);
     if (parsed == null || !parsed.hasScheme) {
-      return Uri.parse(kFixedLogoUrl);
+      return Uri.parse(kDefaultCoverUrl);
     }
 
     return parsed;
@@ -314,7 +337,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       String title = '';
       String artist = '';
       final String album = _resolveAlbum(json);
-      final String cover = _resolveBestCover(json);
 
       if (rawNowPlaying.isNotEmpty) {
         final separatorIndex = rawNowPlaying.indexOf(' - ');
@@ -325,6 +347,16 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
           title = rawNowPlaying;
         }
       }
+
+      if (artist.isEmpty) {
+        artist = _resolveArtistFromJson(json);
+      }
+
+      final String cover = _resolveCover(
+        album: album,
+        artist: artist,
+        title: title,
+      );
 
       final changed = force ||
           title != _lastTitle ||
