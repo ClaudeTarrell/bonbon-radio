@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 
 const String kNowPlayingUrl =
-    'https://radio.bonbonradio.net/json/stream/bonbonradio';
+    'https://c34.radioboss.fm/api/info/1015?key=QG5S5BO9HSKG';
 
 const String kFixedLogoUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
@@ -117,76 +117,39 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     return combined.contains('jingle');
   }
 
+  Map<String, dynamic> _extractTrackAttributes(Map<String, dynamic> json) {
+    final currentTrackInfo = json['currenttrack_info'];
+
+    if (currentTrackInfo is Map<String, dynamic>) {
+      final attributes = currentTrackInfo['@attributes'];
+      if (attributes is Map<String, dynamic>) {
+        return attributes;
+      }
+    }
+
+    return <String, dynamic>{};
+  }
+
   String _resolveAlbum(Map<String, dynamic> json) {
-    final direct = (json['album'] ?? '').toString().trim();
-    if (direct.isNotEmpty) return direct;
-
-    final song = json['song'];
-    if (song is Map<String, dynamic>) {
-      final album = (song['album'] ?? '').toString().trim();
-      if (album.isNotEmpty) return album;
-    }
-
-    final nowPlaying = json['now_playing'];
-    if (nowPlaying is Map<String, dynamic>) {
-      final songMap = nowPlaying['song'];
-      if (songMap is Map<String, dynamic>) {
-        final album = (songMap['album'] ?? '').toString().trim();
-        if (album.isNotEmpty) return album;
-      }
-    }
-
-    final nowPlayingData = json['nowplaying_data'];
-    if (nowPlayingData is Map<String, dynamic>) {
-      final songMap = nowPlayingData['song'];
-      if (songMap is Map<String, dynamic>) {
-        final album = (songMap['album'] ?? '').toString().trim();
-        if (album.isNotEmpty) return album;
-      }
-    }
-
-    final currentTrack = json['currenttrack'];
-    if (currentTrack is Map<String, dynamic>) {
-      final album = (currentTrack['album'] ?? '').toString().trim();
-      if (album.isNotEmpty) return album;
-    }
+    final attributes = _extractTrackAttributes(json);
+    final album = (attributes['ALBUM'] ?? '').toString().trim();
+    if (album.isNotEmpty) return album;
 
     return '';
   }
 
   String _resolveArtistFromJson(Map<String, dynamic> json) {
-    final direct = (json['artist'] ?? '').toString().trim();
-    if (direct.isNotEmpty) return direct;
+    final attributes = _extractTrackAttributes(json);
+    final artist = (attributes['ARTIST'] ?? '').toString().trim();
+    if (artist.isNotEmpty) return artist;
 
-    final song = json['song'];
-    if (song is Map<String, dynamic>) {
-      final artist = (song['artist'] ?? '').toString().trim();
-      if (artist.isNotEmpty) return artist;
-    }
+    return '';
+  }
 
-    final nowPlaying = json['now_playing'];
-    if (nowPlaying is Map<String, dynamic>) {
-      final songMap = nowPlaying['song'];
-      if (songMap is Map<String, dynamic>) {
-        final artist = (songMap['artist'] ?? '').toString().trim();
-        if (artist.isNotEmpty) return artist;
-      }
-    }
-
-    final nowPlayingData = json['nowplaying_data'];
-    if (nowPlayingData is Map<String, dynamic>) {
-      final songMap = nowPlayingData['song'];
-      if (songMap is Map<String, dynamic>) {
-        final artist = (songMap['artist'] ?? '').toString().trim();
-        if (artist.isNotEmpty) return artist;
-      }
-    }
-
-    final currentTrack = json['currenttrack'];
-    if (currentTrack is Map<String, dynamic>) {
-      final artist = (currentTrack['artist'] ?? '').toString().trim();
-      if (artist.isNotEmpty) return artist;
-    }
+  String _resolveTitleFromJson(Map<String, dynamic> json) {
+    final attributes = _extractTrackAttributes(json);
+    final title = (attributes['TITLE'] ?? '').toString().trim();
+    if (title.isNotEmpty) return title;
 
     return '';
   }
@@ -332,24 +295,33 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       if (res.statusCode != 200) return;
 
       final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final rawNowPlaying = (json['nowplaying'] ?? '').toString().trim();
 
-      String title = '';
-      String artist = '';
+      String artist = _resolveArtistFromJson(json);
+      String title = _resolveTitleFromJson(json);
       final String album = _resolveAlbum(json);
 
-      if (rawNowPlaying.isNotEmpty) {
+      final rawNowPlaying = (json['nowplaying'] ?? '').toString().trim();
+
+      if ((artist.isEmpty || title.isEmpty) && rawNowPlaying.isNotEmpty) {
         final separatorIndex = rawNowPlaying.indexOf(' - ');
         if (separatorIndex >= 0) {
-          artist = rawNowPlaying.substring(0, separatorIndex).trim();
-          title = rawNowPlaying.substring(separatorIndex + 3).trim();
-        } else {
+          artist = artist.isEmpty
+              ? rawNowPlaying.substring(0, separatorIndex).trim()
+              : artist;
+          title = title.isEmpty
+              ? rawNowPlaying.substring(separatorIndex + 3).trim()
+              : title;
+        } else if (title.isEmpty) {
           title = rawNowPlaying;
         }
       }
 
       if (artist.isEmpty) {
-        artist = _resolveArtistFromJson(json);
+        artist = 'Bonbon Radio';
+      }
+
+      if (title.isEmpty) {
+        title = 'Live Stream';
       }
 
       final String cover = _resolveCover(
