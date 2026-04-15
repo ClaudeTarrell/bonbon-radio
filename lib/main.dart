@@ -22,10 +22,6 @@ const String kHeaderLogoUrl =
 const String kHeaderLogoFallbackUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
-/// WICHTIG:
-/// Für die App bewusst den DIREKTEN Stream verwenden.
-/// Browser kann schöne URL.
-/// Flutter/just_audio läuft meist stabiler mit dem echten Mountpoint.
 const String kFixedStreamUrl = 'https://c34.radioboss.fm:9015/stream';
 
 const String kInstagramUrl =
@@ -88,6 +84,7 @@ class _HomePageState extends State<HomePage> {
   bool isPlaying = false;
   bool isLoading = false;
   bool _tapLoading = false;
+  bool _hasRealMetadata = false;
 
   String nowTitle = '';
   String nowArtist = '';
@@ -132,16 +129,37 @@ class _HomePageState extends State<HomePage> {
       final isJingle =
           _isJingleMetadata(incomingTitle, incomingArtist, incomingAlbum);
 
-      setState(() {
-        if (isJingle) {
+      final isGenericFallback =
+          _isGenericFallbackMetadata(incomingTitle, incomingArtist);
+
+      if (isJingle) {
+        setState(() {
           nowTitle = '';
           nowArtist = '';
           nowCover = '';
-        } else {
-          nowTitle = incomingTitle;
-          nowArtist = incomingArtist;
-          nowCover = incomingCover;
+        });
+        return;
+      }
+
+      if (isGenericFallback) {
+        if (_hasRealMetadata) {
+          return;
         }
+
+        setState(() {
+          nowTitle = '';
+          nowArtist = '';
+          nowCover = '';
+        });
+        return;
+      }
+
+      _hasRealMetadata = true;
+
+      setState(() {
+        nowTitle = incomingTitle;
+        nowArtist = incomingArtist;
+        nowCover = incomingCover;
       });
     });
 
@@ -158,6 +176,14 @@ class _HomePageState extends State<HomePage> {
     return normalizedTitle.contains('jingle') ||
         normalizedArtist.contains('jingle') ||
         normalizedAlbum.contains('jingle');
+  }
+
+  bool _isGenericFallbackMetadata(String title, String artist) {
+    final normalizedTitle = title.trim().toLowerCase();
+    final normalizedArtist = artist.trim().toLowerCase();
+
+    return normalizedTitle == 'live stream' &&
+        normalizedArtist == 'bonbon radio';
   }
 
   void _showPrettyErrorSnackBar(String message) {
@@ -275,10 +301,12 @@ class _HomePageState extends State<HomePage> {
 
       await widget.audioHandler.playStream(
         url,
-        fallbackTitle: nowTitle.isNotEmpty ? nowTitle : 'Live Stream',
-        fallbackArtist: nowArtist.isNotEmpty ? nowArtist : 'Bonbon Radio',
-        fallbackCover: nowCover.isNotEmpty ? nowCover : kFixedLogoUrl,
+        fallbackTitle: '',
+        fallbackArtist: '',
+        fallbackCover: '',
       );
+
+      unawaited(_refreshMetadataBurst());
 
       if (!mounted) return;
       setState(() {
@@ -294,6 +322,22 @@ class _HomePageState extends State<HomePage> {
       });
 
       _showPrettyErrorSnackBar('Stream konnte nicht gestartet werden.');
+    }
+  }
+
+  Future<void> _refreshMetadataBurst() async {
+    final delays = <Duration>[
+      const Duration(milliseconds: 500),
+      const Duration(seconds: 2),
+      const Duration(seconds: 5),
+      const Duration(seconds: 9),
+    ];
+
+    for (final delay in delays) {
+      await Future<void>.delayed(delay);
+      try {
+        await widget.audioHandler.refreshMetadata(force: true);
+      } catch (_) {}
     }
   }
 
