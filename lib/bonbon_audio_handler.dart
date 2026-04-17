@@ -23,6 +23,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   Timer? _metadataTimer;
   String _currentStreamUrl = '';
   bool _sourcePrepared = false;
+  bool _isPreparing = false;
 
   String _lastTitle = '';
   String _lastArtist = '';
@@ -30,7 +31,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   String _lastAlbum = '';
 
   static const Map<String, String> _streamHeaders = {
-    'User-Agent': 'BonbonRadioApp/1.0 (Android)',
+    'User-Agent': 'BonbonRadioApp/1.0',
     'Accept': '*/*',
     'Icy-MetaData': '1',
     'Connection': 'keep-alive',
@@ -74,7 +75,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       case ProcessingState.ready:
         return AudioProcessingState.ready;
       case ProcessingState.completed:
-        return AudioProcessingState.completed;
+        return AudioProcessingState.ready;
     }
   }
 
@@ -84,15 +85,13 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
-          playing ? MediaControl.pause : MediaControl.play,
-          MediaControl.stop,
+          playing ? MediaControl.stop : MediaControl.play,
         ],
         systemActions: const {
           MediaAction.play,
-          MediaAction.pause,
           MediaAction.stop,
         },
-        androidCompactActionIndices: const [0, 1],
+        androidCompactActionIndices: const [0],
         processingState: _mapProcessingState(_player.processingState),
         playing: playing,
         updatePosition: _player.position,
@@ -134,7 +133,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     final attributes = _extractTrackAttributes(json);
     final album = (attributes['ALBUM'] ?? '').toString().trim();
     if (album.isNotEmpty) return album;
-
     return '';
   }
 
@@ -142,7 +140,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     final attributes = _extractTrackAttributes(json);
     final artist = (attributes['ARTIST'] ?? '').toString().trim();
     if (artist.isNotEmpty) return artist;
-
     return '';
   }
 
@@ -150,7 +147,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     final attributes = _extractTrackAttributes(json);
     final title = (attributes['TITLE'] ?? '').toString().trim();
     if (title.isNotEmpty) return title;
-
     return '';
   }
 
@@ -208,20 +204,25 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   Future<void> _prepareSource(String url) async {
-    final uri = Uri.parse(url);
+    if (_isPreparing) return;
+    _isPreparing = true;
 
-    await _player.stop();
+    try {
+      final uri = Uri.parse(url);
 
-    await _player.setAudioSource(
-      AudioSource.uri(
-        uri,
+      await _player.stop();
+
+      await _player.setUrl(
+        uri.toString(),
         headers: _streamHeaders,
-      ),
-      preload: true,
-    );
+        preload: true,
+      );
 
-    _currentStreamUrl = url;
-    _sourcePrepared = true;
+      _currentStreamUrl = url;
+      _sourcePrepared = true;
+    } finally {
+      _isPreparing = false;
+    }
   }
 
   Future<void> playStream(
@@ -230,12 +231,14 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     required String fallbackArtist,
     required String fallbackCover,
   }) async {
+    _currentStreamUrl = url;
+
     mediaItem.add(
       _buildMediaItem(
         album: 'Bonbon Radio',
         title: fallbackTitle,
         artist: fallbackArtist,
-        cover: fallbackCover,
+        cover: fallbackCover.isNotEmpty ? fallbackCover : kFixedLogoUrl,
       ),
     );
 
@@ -248,7 +251,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       );
 
       final shouldReprepare = !_sourcePrepared ||
-          _currentStreamUrl != url ||
           _player.processingState == ProcessingState.idle;
 
       if (shouldReprepare) {
@@ -259,6 +261,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
 
       _startMetadataTimer();
       await refreshMetadata(force: true);
+      unawaited(_refreshMetadataBurst());
       _broadcastState();
     } catch (e, st) {
       developer.log(
@@ -281,6 +284,26 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     }
   }
 
+  Future<void> _refreshMetadataBurst() async {
+    final delays = <Duration>[
+      const Duration(milliseconds: 800),
+      const Duration(seconds: 2),
+      const Duration(seconds: 4),
+      const Duration(seconds: 7),
+      const Duration(seconds: 11),
+    ];
+
+    for (final delay in delays) {
+      await Future<void>.delayed(delay);
+
+      if (!_player.playing) return;
+
+      try {
+        await refreshMetadata(force: true);
+      } catch (_) {}
+    }
+  }
+
   Future<void> refreshMetadata({bool force = false}) async {
     try {
       final res = await http.get(
@@ -288,7 +311,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         headers: const {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache',
-          'User-Agent': 'BonbonRadioApp/1.0 (Android)',
+          'User-Agent': 'BonbonRadioApp/1.0',
         },
       ).timeout(const Duration(seconds: 12));
 
@@ -364,6 +387,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   void _startMetadataTimer() {
     _metadataTimer?.cancel();
     _metadataTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!_player.playing) return;
       await refreshMetadata();
     });
   }
@@ -378,7 +402,10 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     if (_currentStreamUrl.isEmpty) return;
 
     try {
-      if (!_sourcePrepared || _player.processingState == ProcessingState.idle) {
+      final shouldReprepare = !_sourcePrepared ||
+          _player.processingState == ProcessingState.idle;
+
+      if (shouldReprepare) {
         await _prepareSource(_currentStreamUrl)
             .timeout(const Duration(seconds: 20));
       }
@@ -386,6 +413,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       await _player.play().timeout(const Duration(seconds: 20));
       _startMetadataTimer();
       await refreshMetadata(force: true);
+      unawaited(_refreshMetadataBurst());
       _broadcastState();
     } catch (e, st) {
       developer.log(
@@ -410,9 +438,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
-    await _player.pause();
-    _stopMetadataTimer();
-    _broadcastState();
+    await stop();
   }
 
   @override

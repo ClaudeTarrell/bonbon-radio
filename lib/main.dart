@@ -22,7 +22,7 @@ const String kHeaderLogoUrl =
 const String kHeaderLogoFallbackUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
-const String kFixedStreamUrl = 'https://c34.radioboss.fm:9015/stream';
+const String kFixedStreamUrl = 'https://c34.radioboss.fm/stream/1015';
 
 const String kInstagramUrl =
     'https://www.instagram.com/bonbon_recordings/';
