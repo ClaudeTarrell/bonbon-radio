@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import CarPlay
 
+@available(iOS 14.0, *)
 class SceneDelegate: FlutterSceneDelegate, CPTemplateApplicationSceneDelegate {
   private var interfaceController: CPInterfaceController?
 
@@ -11,7 +12,7 @@ class SceneDelegate: FlutterSceneDelegate, CPTemplateApplicationSceneDelegate {
     to window: CPWindow
   ) {
     self.interfaceController = interfaceController
-    interfaceController.setRootTemplate(makeRootTemplate(), animated: false, completion: nil)
+    interfaceController.setRootTemplate(makeRootTemplate(), animated: false)
   }
 
   func templateApplicationScene(
@@ -29,17 +30,17 @@ class SceneDelegate: FlutterSceneDelegate, CPTemplateApplicationSceneDelegate {
     )
 
     liveItem.handler = { [weak self] _, completion in
-      self?.interfaceController?.pushTemplate(
-        CPNowPlayingTemplate.shared,
-        animated: true,
-        completion: nil
-      )
+      if #available(iOS 14.0, *) {
+        self?.interfaceController?.pushTemplate(
+          CPNowPlayingTemplate.shared,
+          animated: true
+        )
+      }
       completion()
     }
 
     let section = CPListSection(items: [liveItem])
     let listTemplate = CPListTemplate(title: "Bonbon Radio", sections: [section])
-    listTemplate.tabTitle = "Radio"
 
     return listTemplate
   }
