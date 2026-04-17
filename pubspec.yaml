@@ -2,7 +2,7 @@ name: bonbonradio
 description: BonBon Radio App
 publish_to: 'none'
 
-version: 1.0.35+35
+version: 1.0.38+38
 
 environment:
   sdk: ">=3.0.0 <4.0.0"

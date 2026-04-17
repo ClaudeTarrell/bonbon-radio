@@ -18,15 +18,36 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
   Timer? _metadataTimer;
-  String _currentStreamUrl = '';
-  bool _sourcePrepared = false;
+
+  String? _preparedUrl;
+  String? _requestedUrl;
+  bool _isStarting = false;
 
   String _lastTitle = '';
   String _lastArtist = '';
-  String _lastCover = '';
   String _lastAlbum = '';
+  String _lastCover = '';
 
   BonbonAudioHandler() {
+    _player.playerStateStream.listen(
+      (_) => _broadcastState(),
+      onError: (Object error, StackTrace stackTrace) {
+        developer.log(
+          'playerStateStream error',
+          name: 'BonbonAudioHandler',
+          error: error,
+          stackTrace: stackTrace,
+        );
+
+        playbackState.add(
+          playbackState.value.copyWith(
+            processingState: AudioProcessingState.error,
+            playing: false,
+          ),
+        );
+      },
+    );
+
     _player.playbackEventStream.listen(
       (_) => _broadcastState(),
       onError: (Object error, StackTrace stackTrace) {
@@ -46,9 +67,16 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       },
     );
 
-    _player.playerStateStream.listen((_) {
-      _broadcastState();
-    });
+    mediaItem.add(
+      _buildMediaItem(
+        album: 'Bonbon Radio',
+        title: 'Live Stream',
+        artist: 'Bonbon Radio',
+        cover: kDefaultCoverUrl,
+      ),
+    );
+
+    _broadcastState();
   }
 
   AudioProcessingState _mapProcessingState(ProcessingState state) {
@@ -67,12 +95,12 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   void _broadcastState() {
-    final playing = _player.playing;
+    final bool isPlaying = _player.playing;
 
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
-          playing ? MediaControl.pause : MediaControl.play,
+          isPlaying ? MediaControl.pause : MediaControl.play,
           MediaControl.stop,
         ],
         systemActions: const {
@@ -82,7 +110,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         },
         androidCompactActionIndices: const [0, 1],
         processingState: _mapProcessingState(_player.processingState),
-        playing: playing,
+        playing: isPlaying,
         updatePosition: _player.position,
         bufferedPosition: _player.bufferedPosition,
         speed: _player.speed,
@@ -160,10 +188,14 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   Uri _safeArtUri(String cover) {
-    final parsed = Uri.tryParse(cover);
+    final value = cover.trim();
+    if (value.isEmpty) return Uri.parse(kDefaultCoverUrl);
+
+    final parsed = Uri.tryParse(value);
     if (parsed == null || !parsed.hasScheme) {
       return Uri.parse(kDefaultCoverUrl);
     }
+
     return parsed;
   }
 
@@ -173,28 +205,28 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     required String artist,
     required String cover,
   }) {
+    final normalizedTitle = title.trim().isEmpty ? 'Live Stream' : title.trim();
+    final normalizedArtist =
+        artist.trim().isEmpty ? 'Bonbon Radio' : artist.trim();
+    final normalizedAlbum =
+        album.trim().isEmpty ? 'Bonbon Radio' : album.trim();
+
     return MediaItem(
-      id: 'bonbonradio-live',
-      album: album.isNotEmpty ? album : 'Bonbon Radio',
-      title: title.isNotEmpty ? title : 'Live Stream',
-      artist: artist.isNotEmpty ? artist : 'Bonbon Radio',
+      id: 'bonbonradio-live::$normalizedArtist::$normalizedTitle::$normalizedAlbum',
+      album: normalizedAlbum,
+      title: normalizedTitle,
+      artist: normalizedArtist,
       artUri: _safeArtUri(cover),
     );
   }
 
-  Future<void> _prepareSource(String url) async {
-    final uri = Uri.parse(url);
+  Future<void> _prepareIfNeeded(String url) async {
+    if (_preparedUrl == url && _player.processingState != ProcessingState.idle) {
+      return;
+    }
 
-    await _player.stop();
-
-    // 🔥 KEINE HEADER → FIXT iOS AUDIO PROBLEME
-    await _player.setAudioSource(
-      AudioSource.uri(uri),
-      preload: true,
-    );
-
-    _currentStreamUrl = url;
-    _sourcePrepared = true;
+    await _player.setUrl(url);
+    _preparedUrl = url;
   }
 
   Future<void> playStream(
@@ -203,51 +235,37 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     required String fallbackArtist,
     required String fallbackCover,
   }) async {
-    // 🔥 SOFORT LOCKSCREEN DATEN
-    mediaItem.add(
-      MediaItem(
-        id: 'bonbonradio-live',
-        album: 'Bonbon Radio',
-        title: 'Loading...',
-        artist: 'Bonbon Radio',
-        artUri: Uri.parse(kDefaultCoverUrl),
-      ),
-    );
+    _requestedUrl = url;
+    await _startPlayback(url);
+  }
+
+  Future<void> _startPlayback(String url) async {
+    if (_isStarting) return;
+    _isStarting = true;
 
     try {
-      final shouldReprepare = !_sourcePrepared ||
-          _currentStreamUrl != url ||
-          _player.processingState == ProcessingState.idle;
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.loading,
+          playing: false,
+        ),
+      );
 
-      if (shouldReprepare) {
-        await _prepareSource(url);
-      }
-
+      await refreshMetadata(force: true);
+      await _prepareIfNeeded(url);
       await _player.play();
 
-      _startMetadataTimer();
-
-      // 🔥 MULTI REFRESH FIX (ANDROID + IOS)
-      await refreshMetadata(force: true);
-
-      Future.delayed(const Duration(seconds: 1), () {
-        refreshMetadata(force: true);
-      });
-
-      Future.delayed(const Duration(seconds: 3), () {
-        refreshMetadata(force: true);
-      });
-
       _broadcastState();
+      _startMetadataTimer();
     } catch (e, st) {
       developer.log(
-        'playStream failed',
+        '_startPlayback failed',
         name: 'BonbonAudioHandler',
         error: e,
         stackTrace: st,
       );
 
-      _sourcePrepared = false;
+      _preparedUrl = null;
 
       playbackState.add(
         playbackState.value.copyWith(
@@ -257,12 +275,20 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       );
 
       rethrow;
+    } finally {
+      _isStarting = false;
     }
   }
 
   Future<void> refreshMetadata({bool force = false}) async {
     try {
-      final res = await http.get(Uri.parse(kNowPlayingUrl));
+      final res = await http.get(
+        Uri.parse(kNowPlayingUrl),
+        headers: const {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      ).timeout(const Duration(seconds: 8));
 
       if (res.statusCode != 200) return;
 
@@ -272,8 +298,29 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       String title = _resolveTitleFromJson(json);
       final String album = _resolveAlbum(json);
 
-      if (artist.isEmpty) artist = 'Bonbon Radio';
-      if (title.isEmpty) title = 'Live Stream';
+      final rawNowPlaying = (json['nowplaying'] ?? '').toString().trim();
+
+      if ((artist.isEmpty || title.isEmpty) && rawNowPlaying.isNotEmpty) {
+        final separatorIndex = rawNowPlaying.indexOf(' - ');
+        if (separatorIndex >= 0) {
+          if (artist.isEmpty) {
+            artist = rawNowPlaying.substring(0, separatorIndex).trim();
+          }
+          if (title.isEmpty) {
+            title = rawNowPlaying.substring(separatorIndex + 3).trim();
+          }
+        } else if (title.isEmpty) {
+          title = rawNowPlaying;
+        }
+      }
+
+      if (artist.isEmpty) {
+        artist = 'Bonbon Radio';
+      }
+
+      if (title.isEmpty) {
+        title = 'Live Stream';
+      }
 
       final String cover = _resolveCover(
         album: album,
@@ -281,18 +328,18 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         title: title,
       );
 
-      final changed = force ||
+      final bool changed = force ||
           title != _lastTitle ||
           artist != _lastArtist ||
-          cover != _lastCover ||
-          album != _lastAlbum;
+          album != _lastAlbum ||
+          cover != _lastCover;
 
       if (!changed) return;
 
       _lastTitle = title;
       _lastArtist = artist;
-      _lastCover = cover;
       _lastAlbum = album;
+      _lastCover = cover;
 
       mediaItem.add(
         _buildMediaItem(
@@ -302,6 +349,8 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
           cover: cover,
         ),
       );
+
+      _broadcastState();
     } catch (e, st) {
       developer.log(
         'refreshMetadata failed',
@@ -313,8 +362,10 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   void _startMetadataTimer() {
-    _metadataTimer?.cancel();
-    _metadataTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+    _stopMetadataTimer();
+
+    _metadataTimer = Timer.periodic(const Duration(seconds: 8), (_) async {
+      if (!_player.playing) return;
       await refreshMetadata();
     });
   }
@@ -325,10 +376,44 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
+  Future<void> play() async {
+    final url = _requestedUrl;
+    if (url == null || url.isEmpty) return;
+
+    await _startPlayback(url);
+  }
+
+  @override
+  Future<void> pause() async {
+    await _player.pause();
+    _broadcastState();
+  }
+
+  @override
   Future<void> stop() async {
     _stopMetadataTimer();
     await _player.stop();
-    _sourcePrepared = false;
+    _preparedUrl = null;
     _broadcastState();
+  }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    await stop();
+  }
+
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    if (name == 'retry_stream') {
+      final url = _requestedUrl;
+      if (url != null && url.isNotEmpty) {
+        await _startPlayback(url);
+      }
+    }
+  }
+
+  Future<void> disposeHandler() async {
+    _stopMetadataTimer();
+    await _player.dispose();
   }
 }
