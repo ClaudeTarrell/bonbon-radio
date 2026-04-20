@@ -11,7 +11,9 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         to window: CPWindow
     ) {
         self.interfaceController = interfaceController
-        interfaceController.setRootTemplate(makeRootTemplate(), animated: false)
+
+        let rootTemplate = makeRootTemplate()
+        interfaceController.setRootTemplate(rootTemplate, animated: false)
     }
 
     func templateApplicationScene(
