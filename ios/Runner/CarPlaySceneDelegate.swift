@@ -12,8 +12,8 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     ) {
         self.interfaceController = interfaceController
 
-        let rootTemplate = makeRootTemplate()
-        interfaceController.setRootTemplate(rootTemplate, animated: false)
+        let nowPlaying = CPNowPlayingTemplate.shared
+        interfaceController.setRootTemplate(nowPlaying, animated: false)
     }
 
     func templateApplicationScene(
@@ -22,27 +22,5 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         from window: CPWindow
     ) {
         self.interfaceController = nil
-    }
-
-    private func makeRootTemplate() -> CPTemplate {
-        let liveItem = CPListItem(
-            text: "Bonbon Radio Live",
-            detailText: "Öffnet Now Playing"
-        )
-
-        liveItem.handler = { [weak self] _, completion in
-            self?.interfaceController?.pushTemplate(
-                CPNowPlayingTemplate.shared,
-                animated: true
-            )
-            completion()
-        }
-
-        let section = CPListSection(items: [liveItem])
-
-        return CPListTemplate(
-            title: "Bonbon Radio",
-            sections: [section]
-        )
     }
 }
