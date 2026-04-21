@@ -90,7 +90,6 @@ class _HomePageState extends State<HomePage> {
   String nowArtist = '';
   String nowCover = '';
 
-  Timer? timer;
   StreamSubscription<PlaybackState>? _playbackSub;
   StreamSubscription<MediaItem?>? _mediaItemSub;
 
@@ -161,10 +160,6 @@ class _HomePageState extends State<HomePage> {
         nowArtist = incomingArtist;
         nowCover = incomingCover;
       });
-    });
-
-    timer = Timer.periodic(const Duration(seconds: 5), (_) async {
-      await widget.audioHandler.refreshMetadata();
     });
   }
 
@@ -306,8 +301,6 @@ class _HomePageState extends State<HomePage> {
         fallbackCover: '',
       );
 
-      unawaited(_refreshMetadataBurst());
-
       if (!mounted) return;
       setState(() {
         _tapLoading = false;
@@ -322,22 +315,6 @@ class _HomePageState extends State<HomePage> {
       });
 
       _showPrettyErrorSnackBar('Stream konnte nicht gestartet werden.');
-    }
-  }
-
-  Future<void> _refreshMetadataBurst() async {
-    final delays = <Duration>[
-      const Duration(milliseconds: 500),
-      const Duration(seconds: 2),
-      const Duration(seconds: 5),
-      const Duration(seconds: 9),
-    ];
-
-    for (final delay in delays) {
-      await Future<void>.delayed(delay);
-      try {
-        await widget.audioHandler.refreshMetadata(force: true);
-      } catch (_) {}
     }
   }
 
@@ -412,7 +389,6 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    timer?.cancel();
     _playbackSub?.cancel();
     _mediaItemSub?.cancel();
     super.dispose();

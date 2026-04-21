@@ -29,6 +29,16 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   String _lastCover = '';
 
   BonbonAudioHandler() {
+    final initialItem = _buildMediaItem(
+      album: 'Bonbon Radio',
+      title: 'Live Stream',
+      artist: 'Bonbon Radio',
+      cover: kDefaultCoverUrl,
+    );
+
+    mediaItem.add(initialItem);
+    queue.add([initialItem]);
+
     _player.playerStateStream.listen(
       (_) => _broadcastState(),
       onError: (Object error, StackTrace stackTrace) {
@@ -67,15 +77,6 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       },
     );
 
-    mediaItem.add(
-      _buildMediaItem(
-        album: 'Bonbon Radio',
-        title: 'Live Stream',
-        artist: 'Bonbon Radio',
-        cover: kDefaultCoverUrl,
-      ),
-    );
-
     _broadcastState();
   }
 
@@ -101,14 +102,13 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       playbackState.value.copyWith(
         controls: [
           isPlaying ? MediaControl.pause : MediaControl.play,
-          MediaControl.stop,
         ],
         systemActions: const {
           MediaAction.play,
           MediaAction.pause,
           MediaAction.stop,
         },
-        androidCompactActionIndices: const [0, 1],
+        androidCompactActionIndices: const [0],
         processingState: _mapProcessingState(_player.processingState),
         playing: isPlaying,
         updatePosition: _player.position,
@@ -212,12 +212,21 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
         album.trim().isEmpty ? 'Bonbon Radio' : album.trim();
 
     return MediaItem(
-      id: 'bonbonradio-live::$normalizedArtist::$normalizedTitle::$normalizedAlbum',
+      id: 'bonbonradio-live',
       album: normalizedAlbum,
       title: normalizedTitle,
       artist: normalizedArtist,
       artUri: _safeArtUri(cover),
+      playable: true,
+      displayTitle: normalizedTitle,
+      displaySubtitle: normalizedArtist,
+      displayDescription: normalizedAlbum,
     );
+  }
+
+  void _publishMediaItem(MediaItem item) {
+    mediaItem.add(item);
+    queue.add([item]);
   }
 
   Future<void> _prepareIfNeeded(String url) async {
@@ -257,6 +266,12 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
 
       _broadcastState();
       _startMetadataTimer();
+
+      Future<void>.delayed(const Duration(seconds: 1), () async {
+        if (_player.playing) {
+          await refreshMetadata(force: true);
+        }
+      });
     } catch (e, st) {
       developer.log(
         '_startPlayback failed',
@@ -288,7 +303,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache',
         },
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) return;
 
@@ -341,15 +356,14 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       _lastAlbum = album;
       _lastCover = cover;
 
-      mediaItem.add(
-        _buildMediaItem(
-          album: album,
-          title: title,
-          artist: artist,
-          cover: cover,
-        ),
+      final item = _buildMediaItem(
+        album: album,
+        title: title,
+        artist: artist,
+        cover: cover,
       );
 
+      _publishMediaItem(item);
       _broadcastState();
     } catch (e, st) {
       developer.log(
@@ -364,7 +378,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
   void _startMetadataTimer() {
     _stopMetadataTimer();
 
-    _metadataTimer = Timer.periodic(const Duration(seconds: 8), (_) async {
+    _metadataTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
       if (!_player.playing) return;
       await refreshMetadata();
     });
