@@ -208,19 +208,20 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
     final normalizedTitle = title.trim().isEmpty ? 'Live Stream' : title.trim();
     final normalizedArtist =
         artist.trim().isEmpty ? 'Bonbon Radio' : artist.trim();
-    final normalizedAlbum =
-        album.trim().isEmpty ? 'Bonbon Radio' : album.trim();
 
     return MediaItem(
       id: 'bonbonradio-live',
-      album: normalizedAlbum,
+      album: '',
       title: normalizedTitle,
       artist: normalizedArtist,
       artUri: _safeArtUri(cover),
       playable: true,
       displayTitle: normalizedTitle,
       displaySubtitle: normalizedArtist,
-      displayDescription: normalizedAlbum,
+      displayDescription: '',
+      extras: {
+        'cover_slug': album,
+      },
     );
   }
 
