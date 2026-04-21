@@ -102,6 +102,7 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
       playbackState.value.copyWith(
         controls: [
           isPlaying ? MediaControl.pause : MediaControl.play,
+          MediaControl.stop,
         ],
         systemActions: const {
           MediaAction.play,
@@ -414,7 +415,9 @@ class BonbonAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> onTaskRemoved() async {
-    await stop();
+    if (!_player.playing) {
+      await stop();
+    }
   }
 
   @override
