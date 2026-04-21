@@ -3,92 +3,10 @@ import CarPlay
 import MediaPlayer
 
 @available(iOS 14.0, *)
-final class BonbonCarPlayContentManager: NSObject, MPPlayableContentDataSource, MPPlayableContentDelegate {
-    static let shared = BonbonCarPlayContentManager()
-
-    private let liveIdentifier = "bonbonradio.live"
-    private weak var interfaceController: CPInterfaceController?
-
-    private override init() {
-        super.init()
-    }
-
-    func connect(interfaceController: CPInterfaceController) {
-        self.interfaceController = interfaceController
-
-        let manager = MPPlayableContentManager.shared()
-        manager.dataSource = self
-        manager.delegate = self
-        manager.nowPlayingIdentifiers = [liveIdentifier]
-
-        let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        var info = existing
-
-        if info[MPMediaItemPropertyTitle] == nil {
-            info[MPMediaItemPropertyTitle] = "Bonbon Radio"
-        }
-
-        if info[MPMediaItemPropertyArtist] == nil {
-            info[MPMediaItemPropertyArtist] = "Live Stream"
-        }
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        manager.reloadData()
-    }
-
-    func disconnect() {
-        interfaceController = nil
-    }
-
-    func numberOfChildItems(at indexPath: IndexPath) -> Int {
-        if indexPath.count == 0 {
-            return 1
-        }
-        return 0
-    }
-
-    func contentItem(at indexPath: IndexPath) -> MPContentItem? {
-        guard indexPath.count == 1, indexPath.item == 0 else {
-            return nil
-        }
-
-        let item = MPContentItem(identifier: liveIdentifier)
-        item.title = "Bonbon Radio"
-        item.subtitle = "Live Stream"
-        item.isPlayable = true
-        item.isStreamingContent = true
-
-        if let url = URL(string: "https://bonbonradio.net/wp-content/uploads/radio-covers/default.jpeg") {
-            item.artwork = MPMediaItemArtwork(boundsSize: CGSize(width: 512, height: 512)) { _ in
-                if let data = try? Data(contentsOf: url),
-                   let image = UIImage(data: data) {
-                    return image
-                }
-                return UIImage()
-            }
-        }
-
-        return item
-    }
-
-    func playableContentManager(_ contentManager: MPPlayableContentManager,
-                                initiatePlaybackOfContentItemAt indexPath: IndexPath,
-                                completionHandler: @escaping (Error?) -> Void) {
-        contentManager.nowPlayingIdentifiers = [liveIdentifier]
-        interfaceController?.setRootTemplate(CPNowPlayingTemplate.shared, animated: true)
-        completionHandler(nil)
-    }
-
-    func playableContentManager(_ contentManager: MPPlayableContentManager,
-                                beginLoadingChildItems at: IndexPath,
-                                completionHandler: @escaping (Error?) -> Void) {
-        completionHandler(nil)
-    }
-}
-
-@available(iOS 14.0, *)
 class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var interfaceController: CPInterfaceController?
+    private var refreshTimer: Timer?
+    private var listTemplate: CPListTemplate?
 
     func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
@@ -103,10 +21,16 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         commandCenter.togglePlayPauseCommand.isEnabled = true
         commandCenter.stopCommand.isEnabled = true
 
-        BonbonCarPlayContentManager.shared.connect(interfaceController: interfaceController)
+        let template = buildRootTemplate()
+        self.listTemplate = template
 
-        let nowPlaying = CPNowPlayingTemplate.shared
-        interfaceController.setRootTemplate(nowPlaying, animated: false)
+        interfaceController.setRootTemplate(template, animated: false)
+
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+            self?.refreshTemplate()
+        }
+        RunLoop.main.add(refreshTimer!, forMode: .common)
     }
 
     func templateApplicationScene(
@@ -114,7 +38,52 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         didDisconnect interfaceController: CPInterfaceController,
         from window: CPWindow
     ) {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        listTemplate = nil
         self.interfaceController = nil
-        BonbonCarPlayContentManager.shared.disconnect()
+    }
+
+    private func buildRootTemplate() -> CPListTemplate {
+        let liveItem = CPListItem(
+            text: BonbonNowPlayingBridge.shared.currentTitle,
+            detailText: BonbonNowPlayingBridge.shared.currentArtist
+        )
+
+        liveItem.handler = { [weak self] _, completion in
+            self?.interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true)
+            completion()
+        }
+
+        let section = CPListSection(items: [liveItem])
+
+        let template = CPListTemplate(title: "Bonbon Radio", sections: [section])
+
+        let nowPlayingButton = CPBarButton(type: .text) { [weak self] _ in
+            self?.interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true)
+        }
+        nowPlayingButton.title = "Now Playing"
+
+        template.trailingNavigationBarButtons = [nowPlayingButton]
+        template.tabTitle = "Bonbon Radio"
+
+        return template
+    }
+
+    private func refreshTemplate() {
+        guard let template = listTemplate else { return }
+
+        let updatedItem = CPListItem(
+            text: BonbonNowPlayingBridge.shared.currentTitle,
+            detailText: BonbonNowPlayingBridge.shared.currentArtist
+        )
+
+        updatedItem.handler = { [weak self] _, completion in
+            self?.interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true)
+            completion()
+        }
+
+        let section = CPListSection(items: [updatedItem])
+        template.updateSections([section])
     }
 }
