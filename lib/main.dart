@@ -1286,14 +1286,23 @@ class _PromoCarousel extends StatefulWidget {
 class _PromoCarouselState extends State<_PromoCarousel> {
   late Future<List<PromoItem>> _futurePromos;
   late final PageController _pageController;
+
   Timer? _timer;
+
   int _currentIndex = 0;
+  int _promoCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _futurePromos = _loadPromos();
+
     _pageController = PageController();
+
+    _futurePromos = _loadPromos().then((promos) {
+      _promoCount = promos.length;
+      _startAutoSlide();
+      return promos;
+    });
   }
 
   Future<List<PromoItem>> _loadPromos() async {
@@ -1323,15 +1332,17 @@ class _PromoCarouselState extends State<_PromoCarousel> {
     }
   }
 
-  void _startAutoSlide(int count) {
+  void _startAutoSlide() {
     _timer?.cancel();
 
-    if (count <= 1) return;
+    if (_promoCount <= 1) return;
 
-    _timer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (!mounted || !_pageController.hasClients) return;
+    _timer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted || !_pageController.hasClients || _promoCount <= 1) {
+        return;
+      }
 
-      final nextIndex = (_currentIndex + 1) % count;
+      final nextIndex = (_currentIndex + 1) % _promoCount;
 
       _pageController.animateToPage(
         nextIndex,
@@ -1345,6 +1356,7 @@ class _PromoCarouselState extends State<_PromoCarousel> {
   void dispose() {
     _timer?.cancel();
     _pageController.dispose();
+
     super.dispose();
   }
 
@@ -1372,7 +1384,7 @@ class _PromoCarouselState extends State<_PromoCarousel> {
 
         if (snapshot.connectionState != ConnectionState.done) {
           return Container(
-            height: 310,
+            height: 250,
             decoration: BoxDecoration(
               color: const Color(0xFF222222),
               borderRadius: BorderRadius.circular(24),
@@ -1388,8 +1400,6 @@ class _PromoCarouselState extends State<_PromoCarousel> {
           return const SizedBox.shrink();
         }
 
-        _startAutoSlide(promos.length);
-
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1397,11 +1407,11 @@ class _PromoCarouselState extends State<_PromoCarousel> {
               'Highlights',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             SizedBox(
               height: 300,
               child: PageView.builder(
@@ -1424,7 +1434,7 @@ class _PromoCarouselState extends State<_PromoCarousel> {
               ),
             ),
             if (promos.length > 1) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(promos.length, (index) {
@@ -1433,8 +1443,8 @@ class _PromoCarouselState extends State<_PromoCarousel> {
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
                     margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: active ? 22 : 7,
-                    height: 7,
+                    width: active ? 18 : 6,
+                    height: 6,
                     decoration: BoxDecoration(
                       color: active ? Colors.white : Colors.white24,
                       borderRadius: BorderRadius.circular(999),
@@ -1449,7 +1459,6 @@ class _PromoCarouselState extends State<_PromoCarousel> {
     );
   }
 }
-
 class _PromoCard extends StatelessWidget {
   final PromoItem promo;
   final String label;
