@@ -13,6 +13,9 @@ import 'bonbon_audio_handler.dart';
 const String kAppDataUrl =
     'https://bonbonradio.net/wp-json/bonbonradio/v1/app-data?v=20260325';
 
+const String kPromosUrl =
+    'https://bonbonradio.net/wp-json/bonbonradio/v1/promos';
+
 const String kFixedLogoUrl =
     'https://bonbonradio.net/wp-content/uploads/2026/03/cropped-BonBon_Radio-Logo_Homepage.png';
 
@@ -461,6 +464,10 @@ class _HomePageState extends State<HomePage> {
                       isLoading: isLoading,
                       onTap:
                           streamUrl.isEmpty ? null : () => togglePlay(streamUrl),
+                    ),
+                    const SizedBox(height: 22),
+                    _PromoCarousel(
+                      onOpenLink: openLink,
                     ),
                     const SizedBox(height: 22),
                     _InfoCard(
@@ -1224,6 +1231,405 @@ class _SocialButton extends StatelessWidget {
                 color: Colors.white,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PromoItem {
+  final String type;
+  final String title;
+  final String subtitle;
+  final String subtitle2;
+  final String imageUrl;
+  final String buttonText;
+  final String buttonUrl;
+
+  const PromoItem({
+    required this.type,
+    required this.title,
+    required this.subtitle,
+    required this.subtitle2,
+    required this.imageUrl,
+    required this.buttonText,
+    required this.buttonUrl,
+  });
+
+  factory PromoItem.fromJson(Map<String, dynamic> json) {
+    return PromoItem(
+      type: (json['type'] ?? '').toString().trim(),
+      title: (json['title'] ?? '').toString().trim(),
+      subtitle: (json['subtitle'] ?? '').toString().trim(),
+      subtitle2: (json['subtitle2'] ?? '').toString().trim(),
+      imageUrl: (json['imageUrl'] ?? '').toString().trim(),
+      buttonText: (json['buttonText'] ?? '').toString().trim(),
+      buttonUrl: (json['buttonUrl'] ?? '').toString().trim(),
+    );
+  }
+}
+
+class _PromoCarousel extends StatefulWidget {
+  final Future<void> Function(String url) onOpenLink;
+
+  const _PromoCarousel({
+    required this.onOpenLink,
+  });
+
+  @override
+  State<_PromoCarousel> createState() => _PromoCarouselState();
+}
+
+class _PromoCarouselState extends State<_PromoCarousel> {
+  late Future<List<PromoItem>> _futurePromos;
+  late final PageController _pageController;
+  Timer? _timer;
+  int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _futurePromos = _loadPromos();
+    _pageController = PageController();
+  }
+
+  Future<List<PromoItem>> _loadPromos() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse(kPromosUrl),
+            headers: const {'Cache-Control': 'no-cache'},
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (res.statusCode != 200) {
+        return [];
+      }
+
+      final decoded = jsonDecode(res.body);
+      if (decoded is! List) {
+        return [];
+      }
+
+      return decoded
+          .map((item) => PromoItem.fromJson(Map<String, dynamic>.from(item)))
+          .where((item) => item.title.isNotEmpty || item.imageUrl.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _startAutoSlide(int count) {
+    _timer?.cancel();
+
+    if (count <= 1) return;
+
+    _timer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted || !_pageController.hasClients) return;
+
+      final nextIndex = (_currentIndex + 1) % count;
+
+      _pageController.animateToPage(
+        nextIndex,
+        duration: const Duration(milliseconds: 520),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  String _labelForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'release':
+        return 'RELEASE';
+      case 'event':
+        return 'EVENT';
+      case 'news':
+        return 'NEWS';
+      case 'promo':
+        return 'PROMO';
+      default:
+        return 'BONBON RADIO';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<PromoItem>>(
+      future: _futurePromos,
+      builder: (context, snapshot) {
+        final promos = snapshot.data ?? [];
+
+        if (snapshot.connectionState != ConnectionState.done) {
+          return Container(
+            height: 310,
+            decoration: BoxDecoration(
+              color: const Color(0xFF222222),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+
+        if (promos.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        _startAutoSlide(promos.length);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Highlights',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 300,
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: promos.length,
+                onPageChanged: (index) {
+                  setState(() {
+                    _currentIndex = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  final promo = promos[index];
+
+                  return _PromoCard(
+                    promo: promo,
+                    label: _labelForType(promo.type),
+                    onOpenLink: widget.onOpenLink,
+                  );
+                },
+              ),
+            ),
+            if (promos.length > 1) ...[
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(promos.length, (index) {
+                  final active = index == _currentIndex;
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: active ? 22 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: active ? Colors.white : Colors.white24,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  );
+                }),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PromoCard extends StatelessWidget {
+  final PromoItem promo;
+  final String label;
+  final Future<void> Function(String url) onOpenLink;
+
+  const _PromoCard({
+    required this.promo,
+    required this.label,
+    required this.onOpenLink,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = promo.imageUrl.trim().isNotEmpty;
+    final hasButton =
+        promo.buttonText.trim().isNotEmpty && promo.buttonUrl.trim().isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color.fromRGBO(255, 255, 255, 0.10),
+          width: 1.3,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color.fromRGBO(0, 0, 0, 0.36),
+            blurRadius: 20,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(color: const Color(0xFF202020)),
+            if (hasImage)
+              Image.network(
+                promo.imageUrl,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) {
+                  return const SizedBox.shrink();
+                },
+              ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color.fromRGBO(0, 0, 0, 0.08),
+                    Color.fromRGBO(0, 0, 0, 0.28),
+                    Color.fromRGBO(0, 0, 0, 0.82),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          label,
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      const _BonbonRadioWordmark(
+                        fontSize: 18,
+                        textAlign: TextAlign.right,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  if (promo.subtitle.isNotEmpty) ...[
+                    Text(
+                      promo.subtitle.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFE0E0E0),
+                        fontSize: 12,
+                        letterSpacing: 1.8,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                  ],
+                  Text(
+                    promo.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 23,
+                      fontWeight: FontWeight.w900,
+                      height: 1.02,
+                    ),
+                  ),
+                  if (promo.subtitle2.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      promo.subtitle2,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFE8E8E8),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                  if (hasButton) ...[
+                    const SizedBox(height: 14),
+                    Material(
+                      color: Colors.transparent,
+                      child: _TvFocusableButtonShell(
+                        onTap: () => onOpenLink(promo.buttonUrl),
+                        borderRadius: BorderRadius.circular(18),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 11,
+                        ),
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.all(Radius.circular(18)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black38,
+                              blurRadius: 14,
+                              offset: Offset(0, 7),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              promo.buttonText,
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Icon(
+                              Icons.arrow_outward_rounded,
+                              color: Colors.black,
+                              size: 19,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
