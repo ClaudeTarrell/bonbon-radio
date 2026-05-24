@@ -22,6 +22,28 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
+      - name: Create export options
+        script: |
+          cat > /Users/builder/export_options.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>PHHXGMJ82B</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.claudetarrell.bonbonradio</key>
+              <string>bonbon-clean</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
       - name: Flutter clean
         script: |
           flutter clean
@@ -38,7 +60,7 @@ workflows:
 
       - name: Build IPA
         script: |
-          flutter build ipa --release
+          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
