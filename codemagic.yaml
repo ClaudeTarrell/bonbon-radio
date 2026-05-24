@@ -10,15 +10,13 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      ios_signing:
+        provisioning_profiles:
+          - bonbon-clean
+        certificates:
+          - bonbon-distribution
 
     scripts:
-      - name: Set up signing
-        script: |
-          keychain initialize
-          app-store-connect fetch-signing-files com.claudetarrell.bonbonradio --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
-
       - name: Flutter clean
         script: |
           flutter clean
@@ -33,17 +31,18 @@ workflows:
           pod install
           cd ..
 
-      - name: Build iOS app
+      - name: Apply iOS signing
         script: |
-          flutter build ios --release --no-codesign
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles
 
       - name: Build IPA
         script: |
-          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
+          flutter build ipa --release
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
 
     publishing:
       app_store_connect:
