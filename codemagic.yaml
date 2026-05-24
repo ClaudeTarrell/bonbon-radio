@@ -1,0 +1,35 @@
+workflows:
+  ios-release:
+    name: iOS Release
+    instance_type: mac_mini_m2
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Flutter clean
+        script: |
+          flutter clean
+          flutter pub get
+
+      - name: Reset CocoaPods
+        script: |
+          cd ios
+          rm -rf Pods
+          rm -f Podfile.lock
+          pod repo update
+          pod install
+          cd ..
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+
+    publishing:
+      app_store_connect:
+        auth: integration
